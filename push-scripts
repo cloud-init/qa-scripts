@@ -1,0 +1,29 @@
+#!/bin/sh
+# Upload all scripts to a newly created instance.
+#
+# Copyright 2017 Canonical Ltd.
+# Joshua Powers <josh.powers@canonical.com>
+
+if [ -z "$1" ]; then
+    echo "Need an IP address."
+    exit 1
+fi
+
+# DEFAULT USERNAMEs
+# aws: ubuntu
+# gce: user from ssh key
+# azure:
+#   portal - user entered
+#   az - TBD
+# do: root
+# uvt-tool: ubuntu
+USER=${2:-ubuntu}
+
+if [ -e "scripts" ]; then
+    echo "Cannot find scripts directory!"
+    exit 1
+fi
+
+# TODO: if aws, specify a .pem file
+echo "Connecting to $IP with $USER..."
+rsync -v -e ssh ./scripts/* "$USER"@"$IP":~
