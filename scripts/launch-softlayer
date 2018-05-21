@@ -17,6 +17,7 @@ _missing_deps = []
 
 try:
     import SoftLayer
+    from SoftLayer.utils import is_ready
 except ImportError:
     _missing_deps.append('SoftLayer')
 try:
@@ -612,9 +613,12 @@ def create_instance(client, image, keyname, flavor=None,
             sys.stdout.write(
                 "[%3ds] %s" % (int(time.time() - start), str(status)))
         sys.stdout.flush()
+
         last_status = status
 
-        if status == "SERVICE_SETUP":
+        if is_ready(data):
+            if status != "SERVICE_SETUP":
+                sys.stderr.write(" [is_ready=True status=%s]" % status)
             sys.stderr.write("\n")
             finish = time.time()
             break
