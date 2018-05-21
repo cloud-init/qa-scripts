@@ -322,14 +322,14 @@ def get_image_guid_by_name(client, name):
     """Return the newest image with given name."""
     imgr = SoftLayer.ImageManager(client)
     images = sorted(imgr.list_private_images(name=name),
-                    key=datetime_for_image, reverse=True)
+                    key=image_datetime, reverse=True)
     guid = None
     if images:
         src = "private"
     else:
         src = "public"
         images = sorted(imgr.list_public_images(name=name),
-                        key=datetime_for_image, reverse=True)
+                        key=image_datetime, reverse=True)
 
     if not images:
         raise RuntimeError(
@@ -339,7 +339,7 @@ def get_image_guid_by_name(client, name):
     if len(images) > 1:
         print("Selected newest %s image '%s' created on '%s' from %d "
               "with name '%s'" %
-              (src, guid, datetime_for_image(images[0]), len(images), name))
+              (src, guid, image_datetime(images[0]), len(images), name))
     print(images[0])
 
     return guid
@@ -359,7 +359,7 @@ def image_id_to_guid(image, client):
     return image_details['globalIdentifier']
 
 
-def datetime_for_image(img):
+def image_datetime(img):
     # create Date looks like 2016-10-24T10:45:25-05:00
     # replacing the ':' which arent easily handled in a timezone
     return datetime.datetime.strptime(
@@ -386,7 +386,7 @@ def get_ubuntu_image_id(client, series_name, flavor):
         name=tmpl.format(size=size, version=version, arch=arch))
     imgs = [i for i in imgs if i['accountId'] == account]
 
-    imgs = sorted(imgs, key=datetime_for_image, reverse=True)
+    imgs = sorted(imgs, key=image_datetime, reverse=True)
     print(imgs[0])
     return imgs[0]['globalIdentifier']
 
@@ -638,27 +638,33 @@ def error(message):
     sys.exit(1)
 
 
-def list_images(client, account=PUBLIC_IMAGE_ACCOUNT_ID):
+def list_images(client, account=PUBLIC_IMAGE_ACCOUNT_ID, newest=True):
+    def imgkey(i):
+        # if image has a starts with '100GB -' or '25GB -' then
+        # take that off so it groups with other images of its os type.
+        # 25GB - Ubuntu / Ubuntu  / 10.04-32 Minimal for VSI
+        if i['name'].startswith("25GB -") or i['name'].startswith("100GB -"):
+            name = "{2} - {0}".format(*i['name'].partition("-"))
+        else:
+            name = i['name']
+        return (name, image_datetime(i))
+
     imgr = SoftLayer.ImageManager(client)
-    imgs = imgr.list_public_images()
-    imgs = [i for i in imgs if i['accountId'] == account]
+    imgs = [i for i in imgr.list_public_images()
+            if i['accountId'] == account]
 
-    images = {}
-    for i in imgs:
-        name = i['name']
-        if name in images:
-            if datetime_for_image(i) < datetime_for_image(images[name]):
-                continue
-        images[name] = i
+    ordered = sorted(imgs, key=imgkey, reverse=True)
+    printed = set()
 
-    fmt = "%7s  %-36s  %10s  %s"
-    print(fmt % ("id", "guid", "create", "name"))
-    for i in sorted(images.values(), key=lambda i: i['name']):
-        print(fmt % (
-            i['id'], i['globalIdentifier'],
-            datetime.datetime.strftime(datetime_for_image(i), "%Y-%m-%d"),
-            i['name'],
-            ))
+    fmt = "{id!s:>7s} {globalIdentifier:36s} {ymd:10s} {name}"
+    print(fmt.format(id="id", globalIdentifier="guid", ymd="created",
+          name="name"))
+    for i in sorted(imgs, key=imgkey, reverse=True):
+        if newest and i['name'] in printed:
+            continue
+        i['ymd'] = datetime.datetime.strftime(image_datetime(i), "%Y-%m-%d")
+        print(fmt.format(**i))
+        printed.add(i['name'])
 
 
 def main():
