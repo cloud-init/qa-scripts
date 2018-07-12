@@ -215,13 +215,13 @@ class SoftLayerInstance(object):
                 sys.stderr.write("Checking ssh try %d (waited %ds/%d)\n" %
                                  (tries, delta, timeout))
             out, err, rc = self.runcmd(
-                'true', ssh_opts=['-o', 'ConnectTimeout=2'], timeout=5)
+                'cat /proc/uptime',
+                ssh_opts=['-o', 'ConnectTimeout=2'], timeout=5)
             if rc == 0:
-                if tries == 1:
-                    sys.stderr.write("ssh up on first try.\n")
-                else:
-                    sys.stderr.write("ssh up after %ds (%d tries)\n" %
-                                     (time.time() - start, tries))
+                up, _idle = out.decode('utf-8').split()
+                sys.stderr.write(
+                    "ssh up after %ds (uptime %s - %d tries)\n" %
+                    (time.time() - start, up, tries))
                 return
             tries += 1
             time.sleep(1)
@@ -293,7 +293,7 @@ class SoftLayerInstance(object):
         shutil.move(remote_artifact_basename, artifacts_dir)
 
     def wait_on_cloud_init(self):
-        print("Waiting on cloud-init")
+        sys.stderr.write("Waiting on cloud-init\n")
         self._cloud_init_ran = True
         out, err, rc = self.runcmd("cloud-init status --wait")
         if rc != 0:
@@ -301,6 +301,7 @@ class SoftLayerInstance(object):
 
     def update_proposed_cloud_init(self):
         """Update cloud-init package to the version present in proposed."""
+        sys.stderr.write("Enabling proposed and updating cloud-init.\n")
         self.runcmd(
             " rel=$(lsb_release -sc);"
             ' grep "deb .* $rel main" /etc/apt/sources.list |'
@@ -316,11 +317,11 @@ class SoftLayerInstance(object):
         A cleaned system allows cloud-init to boot as if it is seeing the
         instance on first boot.
         """
-        clean_cmd = 'sudo rm -Rf /var/lib/cloud /var/log/cloud*'
+        clean_cmd = 'sudo cloud-init clean --logs'
         self.runcmd(clean_cmd)
         self._cloud_init_ran = True
         if reboot:
-            print("Waiting for instance clean reboot")
+            sys.stderr.write("Waiting for instance clean reboot\n")
             self.reboot()
 
     def destroy(self):
@@ -332,6 +333,7 @@ class SoftLayerInstance(object):
         guest = self.client['Virtual_Guest']
         reboot = guest.rebootHard if hard else guest.rebootSoft
         reboot(id=self.instance['id'])
+        sys.stderr.write("Issued reboot, now sleeping to give it time.\n")
         time.sleep(10)
         self.wait_for_ssh()
         self.wait_on_cloud_init()
@@ -740,8 +742,10 @@ def main():
     if args.proposed:
         instance.update_proposed_cloud_init()
     if args.clean:
+        sys.stderr.write("Cleaning system\n")
         instance.clean(reboot=True)
     if args.script_dir:
+        sys.stderr.write("Executing scripts from %s\n" % args.script_dir)
         instance.run_scripts(args.script_dir, args.artifacts_dir)
     if args.destroy:
         instance.destroy()
