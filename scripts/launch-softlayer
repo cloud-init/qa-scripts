@@ -6,7 +6,6 @@
 from argparse import ArgumentParser
 import datetime
 import os
-import re
 import shutil
 import sys
 from subprocess import (PIPE, Popen, check_output)
@@ -203,7 +202,35 @@ class SoftLayerInstance(object):
                '-o', 'UserKnownHostsFile=/dev/null', source_path, dest_path]
         check_output(cmd)
 
-    def runcmd(self, command, pipe_in=None, pipe_out=False):
+    def wait_for_ssh(self, timeout=180):
+        start = time.time()
+        tries = 1
+        sys.stderr.write("Waiting for ssh.\n")
+        while True:
+            delta = time.time() - start
+            if delta >= timeout:
+                break
+            # uses pipe_out to get 'proc' so we can use timeout and read rc.
+            if tries != 1:
+                sys.stderr.write("Checking ssh try %d (waited %ds/%d)\n" %
+                                 (tries, delta, timeout))
+            out, err, rc = self.runcmd(
+                'true', ssh_opts=['-o', 'ConnectTimeout=2'], timeout=5)
+            if rc == 0:
+                if tries == 1:
+                    sys.stderr.write("ssh up on first try.\n")
+                else:
+                    sys.stderr.write("ssh up after %ds (%d tries)\n" %
+                                     (time.time() - start, tries))
+                return
+            tries += 1
+            time.sleep(1)
+        raise TimeoutError(
+            "Timed out waiting for ssh to %s after %ds." %
+            (self.instance['primaryIpAddress'], delta))
+
+    def runcmd(self, command, ssh_opts=None, pipe_in=None, pipe_out=False,
+               timeout=None):
         """Run a command over ssh on the instance.
 
         @param command: The string of command(s) to execute on the remote
@@ -212,20 +239,25 @@ class SoftLayerInstance(object):
         @param pipe_out: Optionally, whether to return the popen process
             spawned to allow subprocess.PIPEs to use the stdout of the command.
         """
-        hostname = self.instance.meta.data['PublicDnsName']
+        ip = self.instance['primaryIpAddress']
+        if ssh_opts is None:
+            ssh_opts = []
         stdin = None
         if pipe_in:
             stdin = pipe_in.stdout
-        ssh_cmd = [
-            'ssh', '-i', self.pubkey, '-o', 'StrictHostKeyChecking=no', '-o',
-            'UserKnownHostsFile=/dev/null', 'ubuntu@{}'.format(hostname), '--',
-            'SCRIPT_ARTIFACT_DIR={}'.format(self.artifact_dir)]
+        ssh_cmd = (
+            ['ssh', '-i', self.pubkey, '-o', 'StrictHostKeyChecking=no', '-o',
+             'UserKnownHostsFile=/dev/null'] +
+            ssh_opts +
+            ['root@{}'.format(ip), '--',
+             'SCRIPT_ARTIFACT_DIR={}'.format(self.artifact_dir)])
         proc = Popen(ssh_cmd + [command], stdin=stdin, stdout=PIPE)
         if pipe_in:
             pipe_in.stdout.close()  # Allow p1 to receive SIGPIPE if p2 exits
         if pipe_out:
             return proc  # Caller needs to communicate and close
-        return proc.communicate()
+        out, err = proc.communicate(timeout=timeout)
+        return out, err, proc.returncode
 
     def run_scripts(self, scripts_dir, artifacts_dir):
         """Push scripts_dir to the instance, run them and return artifacts.
@@ -263,26 +295,20 @@ class SoftLayerInstance(object):
     def wait_on_cloud_init(self):
         print("Waiting on cloud-init")
         self._cloud_init_ran = True
-        out, err = self.runcmd(
-            "while [ ! -f '/run/cloud-init/result.json' ]; do"
-            " echo -n '.'; sleep 1; done")
+        out, err, rc = self.runcmd("cloud-init status --wait")
+        if rc != 0:
+            raise TimeoutError("Failed waiting for cloud-init: %s." % err)
 
     def update_proposed_cloud_init(self):
         """Update cloud-init package to the version present in proposed."""
-        match = re.match(
-            r'.*ubuntu-(?P<series>[^-]*).*', self.instance.image.name)
-        if not match:
-            raise RuntimeError(
-                'Could not determine ubuntu series from image: {}'.format(
-                    self.instance.image.name))
-        series = match.group('series')
         self.runcmd(
-            "egrep 'deb .*{0} main' /etc/apt/sources.list |"
-            " sed 's/{0}/{0}-proposed/' > /tmp/cloud-init-proposed.list;"
+            " rel=$(lsb_release -sc);"
+            ' grep "deb .* $rel main" /etc/apt/sources.list |'
+            ' sed "s/$rel/$rel-proposed/" > /tmp/cloud-init-proposed.list;'
             " sudo mv /tmp/cloud-init-proposed.list /etc/apt/sources.list.d/;"
             " sudo apt-get update;"
-            " sudo  DEBIAN_FRONTEND=noninteractive apt-get install cloud-init"
-            " --yes".format(series))
+            " sudo DEBIAN_FRONTEND=noninteractive apt-get install cloud-init"
+            " --yes")
 
     def clean(self, reboot=False):
         """Clean cloud-init artifacts from the system making it look 'new'.
@@ -301,11 +327,13 @@ class SoftLayerInstance(object):
         """Stop and destroy the instance."""
         self.vsmgr.cancel_instance(self.instance['id'])
 
-    def reboot(self):
+    def reboot(self, hard=False):
         """Stop and destroy the instance."""
-        self.instance.reboot()
-        time.sleep(8)
-        self.instance.reload()
+        guest = self.client['Virtual_Guest']
+        reboot = guest.rebootHard if hard else guest.rebootSoft
+        reboot(id=self.instance['id'])
+        time.sleep(10)
+        self.wait_for_ssh()
         self.wait_on_cloud_init()
 
     def start(self):
@@ -653,7 +681,6 @@ def list_images(client, account=PUBLIC_IMAGE_ACCOUNT_ID, newest=True):
     imgs = [i for i in imgr.list_public_images()
             if i['accountId'] == account]
 
-    ordered = sorted(imgs, key=imgkey, reverse=True)
     printed = set()
 
     fmt = "{id!s:>7s} {globalIdentifier:36s} {ymd:10s} {name}"
@@ -662,7 +689,8 @@ def list_images(client, account=PUBLIC_IMAGE_ACCOUNT_ID, newest=True):
     for i in sorted(imgs, key=imgkey, reverse=True):
         if newest and i['name'] in printed:
             continue
-        i['ymd'] = datetime.datetime.strftime(image_datetime(i), "%Y-%m-%d")
+        i['ymd'] = datetime.datetime.strftime(image_datetime(i),
+                                              "%Y-%m-%d-%H%M%S")
         print(fmt.format(**i))
         printed.add(i['name'])
 
