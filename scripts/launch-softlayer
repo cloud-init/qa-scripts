@@ -464,8 +464,8 @@ def get_parser():
         default=DEFAULT_FLAVOR,
         help='Specify a size/flavor to deploy')
     parser.add_argument(
-        '--keep-alive', action='store_true', default=True,
-        dest='keep_alive', help='Leave the instance running after test.')
+        '--destroy', action='store_true', default=False,
+        dest='destroy', help='Destroy system after running test.')
     parser.add_argument(
         '-p', '--proposed', action='store_true', default=False,
         help='Update instance cloud-init to the version in <series>-proposed.')
@@ -743,7 +743,7 @@ def main():
         instance.clean(reboot=True)
     if args.script_dir:
         instance.run_scripts(args.script_dir, args.artifacts_dir)
-    if not args.keep_alive:
+    if args.destroy:
         instance.destroy()
     else:
         sys.stderr.write(
