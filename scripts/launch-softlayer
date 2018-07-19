@@ -35,7 +35,7 @@ PUBLIC_IMAGE_ACCOUNT_ID = 208938
 DEFAULT_REGION = 'dal05'
 DEFAULT_FLAVOR = 'B1_1X4X100'
 DEFAULT_FLAVOR = 'C1_1X1X25'
-DEFAULT_SERIES = 'xenial'
+DEFAULT_SERIES = 'bionic'
 SECGROUP_NAME = 'Cloud-init integration test secgroup'
 SECGROUP_DESCRIPTION = 'Security group setting ssh ingress to instances'
 
