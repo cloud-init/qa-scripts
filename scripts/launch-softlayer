@@ -40,6 +40,31 @@ SECGROUP_NAME = 'Cloud-init integration test secgroup'
 SECGROUP_DESCRIPTION = 'Security group setting ssh ingress to instances'
 
 UBUNTU_VERSIONS = {'trusty': '14.04', 'xenial': '16.04', 'bionic': '18.04'}
+OS_CODE_ALIASES = {'precise': 'UBUNTU_12_64', 'trusty': 'UBUNTU_14_64',
+                   'xenial': 'UBUNTU_16_64', 'bionic': 'UBUNTU_18_64'}
+# these can be listed with '--list-os-codes'
+OS_CODE_NAMES = [
+    'CENTOS_5_64',
+    'CENTOS_6_64',
+    'CENTOS_7_64',
+    'COREOS_LATEST',
+    'COREOS_LATEST_64',
+    'DEBIAN_6_64',
+    'DEBIAN_7_64',
+    'DEBIAN_8_64',
+    'DEBIAN_9_64',
+    'DEBIAN_LATEST_64',
+    'REDHAT_5_64',
+    'REDHAT_6_64',
+    'REDHAT_7_64',
+    'REDHAT_LATEST_64',
+    'UBUNTU_12_64',
+    'UBUNTU_14_64',
+    'UBUNTU_16_64',
+    'UBUNTU_18_64',
+    'UBUNTU_LATEST_64',
+]
+
 
 # Directory where script artifacts can be saved for sync
 DEFAULT_LOCAL_ARTIFACT_DIR = 'test-artifacts'
@@ -427,7 +452,11 @@ def get_os_name(name):
         name = name.partition(":")[2]
     s2v = {'precise': 'UBUNTU_12_64', 'trusty': 'UBUNTU_14_64',
            'xenial': 'UBUNTU_16_64', 'bionic': 'UBUNTU_18_64'}
-    return s2v.get(name, name)
+    if name in OS_CODE_ALIASES:
+        return OS_CODE_ALIASES['name']
+    if name in OS_CODE_NAMES:
+        return name
+    raise KeyError("Unknown os name '%s'" % name)
 
 
 def get_parser():
@@ -438,7 +467,8 @@ def get_parser():
         help='Specify the image id to deploy. Use "template:<release>" to '
              'launch by well known template.  Or use ubuntu release name '
              '(%s), image id (integer), '
-             'guid (uuid), or name' % list(UBUNTU_VERSIONS.keys()))
+             'guid (uuid), or name or os_code (%s)' %
+             (list(UBUNTU_VERSIONS.keys()), ' '.join(OS_CODE_NAMES)))
     parser.add_argument(
         '--deb-file', type=str, required=False, dest='deb_file',
         help='Provide a local deb for install on the instance')
@@ -486,6 +516,9 @@ def get_parser():
     parser.add_argument(
         '--list-ibm-images', action='store_true', default=False,
         help='show most recent images published by ibm.')
+    parser.add_argument(
+        '--list-os-codes', action='store_true', default=False,
+        help='show os_code values from api.')
     parser.add_argument(
         '-v', '--verbose', action='store_true', default=False,
         help='Print more information about the operations performed.')
@@ -594,24 +627,18 @@ def create_instance(client, image, keyname, flavor=None,
         'userdata': userdata,
         }
     )
-    if image in UBUNTU_VERSIONS or image.startswith("os:"):
-        # if image is simply 'xenial' or 'bionic', then launch by os_code.
-        # that is the newer config-2 style launch.
-        # Get a list with:
-        # opts = vsmgr.get_create_options()
-        # [k['template']['operatingSystemReferenceCode']
-        #    for k in opts['operatingSystems']]
+    try:
         opts['os_code'] = get_os_name(image)
-    elif image.startswith("template:"):
-        # 'template:xenial' gets converted to well known public template name.
-        # image is 'os:' meaning launch by 'os' (os:UBUNTU_16_64)
-        opts['image_id'] = get_ubuntu_image_id(client, image, flavor)
-    else:
-        try:
-            # this handles int or actual guid.
-            opts['image_id'] = image_id_to_guid(image, client)
-        except ValueError:
-            opts['image_id'] = get_image_guid_by_name(client, image)
+    except KeyError:
+        if image.startswith("template:"):
+            # 'template:xenial' gets converted to well known public templ name.
+            opts['image_id'] = get_ubuntu_image_id(client, image, flavor)
+        else:
+            try:
+                # this handles int or actual guid.
+                opts['image_id'] = image_id_to_guid(image, client)
+            except ValueError:
+                opts['image_id'] = get_image_guid_by_name(client, image)
 
     if security_groups is not None:
         opts['public_security_groups'] = security_groups
@@ -666,6 +693,15 @@ def create_instance(client, image, keyname, flavor=None,
 def error(message):
     sys.stderr.write('ERROR: {0}\n'.format(message))
     sys.exit(1)
+
+
+def list_os_codes(client):
+    vsmgr = SoftLayer.VSManager(client)
+    opts = vsmgr.get_create_options()
+    os_codes = [
+        k['template']['operatingSystemReferenceCode']
+        for k in opts['operatingSystems']]
+    print('\n'.join(sorted(os_codes)))
 
 
 def list_images(client, account=PUBLIC_IMAGE_ACCOUNT_ID, newest=True):
@@ -725,6 +761,9 @@ def main():
 
     if args.list_ibm_images:
         list_images(client)
+        sys.exit(0)
+    if args.list_os_codes:
+        list_os_codes(client)
         sys.exit(0)
     keypair = import_keypair(client, args.pubkey_file)
     inst = create_instance(
