@@ -453,7 +453,7 @@ def get_os_name(name):
     s2v = {'precise': 'UBUNTU_12_64', 'trusty': 'UBUNTU_14_64',
            'xenial': 'UBUNTU_16_64', 'bionic': 'UBUNTU_18_64'}
     if name in OS_CODE_ALIASES:
-        return OS_CODE_ALIASES['name']
+        return OS_CODE_ALIASES[name]
     if name in OS_CODE_NAMES:
         return name
     raise KeyError("Unknown os name '%s'" % name)
