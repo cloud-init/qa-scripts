@@ -52,7 +52,7 @@ debug() {
 
 find_command() {
     local cmd="$1" mydir="${0%/*}" fpath=""
-    command -v "$cmd" >/dev/null 2>&1 && _RET="$cmd" && return 0
+    command -v "$cmd" >/dev/null 2>&1 && _RET="$(command -v $cmd)" && return 0
     [ -x "$mydir/$cmd" ] && _RET="$mydir/$cmd" && return 0
     fpath=$(readlink -f "$0")
     mydir="${fpath%/*}"
