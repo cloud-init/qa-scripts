@@ -7,7 +7,7 @@ except ImportError:
     raise RuntimeError(
         'Could not import argparse. Please install python-argparse '
         'package to continue')
-    
+
 try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError
@@ -381,7 +381,7 @@ def ec2_create_vpc(ec2, region, zone, tag=None):
             DestinationIpv6CidrBlock='::/0', GatewayId=gw.id)
         route_table.associate_with_subnet(SubnetId=subnet.id)
     return vpc, subnet, route_table
-    
+
 
 def ec2_create_secgroup(ec2, vpc_id, sec_group_name=None, ipv4_cidr=None,
                         ipv6_cidr=None, tag=None):
@@ -429,8 +429,8 @@ def ec2_create_instance(ec2, ami_id, region_zone, secgroup, subnet,
             kwargs['UserData'] = stream.read()
     [instance] = ec2.create_instances(**kwargs)
     # block until running
-    print('Waiting for EC2 instance initialization size=%s zone=%s' %
-          (kwargs['InstanceType'], region_zone))
+    print('Waiting for EC2 instance initialization size=%s zone=%s id=%s' %
+          (kwargs['InstanceType'], region_zone, instance.id))
 
     instance.wait_until_running(
         Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
