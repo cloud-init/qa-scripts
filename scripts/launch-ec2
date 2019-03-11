@@ -7,7 +7,7 @@ except ImportError:
     raise RuntimeError(
         'Could not import argparse. Please install python-argparse '
         'package to continue')
-    
+
 try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError
@@ -381,7 +381,7 @@ def ec2_create_vpc(ec2, region, zone, tag=None):
             DestinationIpv6CidrBlock='::/0', GatewayId=gw.id)
         route_table.associate_with_subnet(SubnetId=subnet.id)
     return vpc, subnet, route_table
-    
+
 
 def ec2_create_secgroup(ec2, vpc_id, sec_group_name=None, ipv4_cidr=None,
                         ipv6_cidr=None, tag=None):
