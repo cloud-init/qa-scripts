@@ -429,8 +429,8 @@ def ec2_create_instance(ec2, ami_id, region_zone, secgroup, subnet,
             kwargs['UserData'] = stream.read()
     [instance] = ec2.create_instances(**kwargs)
     # block until running
-    print('Waiting for EC2 instance initialization size=%s zone=%s' %
-          (kwargs['InstanceType'], region_zone))
+    print('Waiting for EC2 instance initialization size=%s zone=%s id=%s' %
+          (kwargs['InstanceType'], region_zone, instance.id))
 
     instance.wait_until_running(
         Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
