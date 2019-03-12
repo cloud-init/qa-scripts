@@ -424,9 +424,11 @@ def ec2_create_secgroup(ec2, vpc_id, sec_group_name=None, ipv4_cidr=None,
                      {'Name': 'tag-value', 'Values': [tag]}])]
     if existing_groups:
         return existing_groups[0]
+    kwargs = {}
+    if vpc_id is not None:
+        kwargs['VpcId'] = vpc_id
     secgroup = ec2.create_security_group(
-        GroupName=sec_group_name, Description=SECGROUP_DESCRIPTION,
-        VpcId=vpc_id)
+        GroupName=sec_group_name, Description=SECGROUP_DESCRIPTION, **kwargs)
     secgroup.create_tags(Tags=[{'Key': 'Name', 'Value': tag}])
     permissions = [
         {'FromPort':22, 'ToPort': 22, 'IpProtocol': 'tcp',
