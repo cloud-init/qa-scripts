@@ -293,9 +293,8 @@ def get_parser():
         default=DEFAULT_AVAILABILITY_ZONE,
         help='Specify a zone to deploy to [default=%s]' % DEFAULT_AVAILABILITY_ZONE)
     parser.add_argument(
-        '--no-vpc', action='store_true', default=False,
-        help='Launch instance without an explicit VPC (useful for classic'
-             ' networking testing)')
+        '--use-classic-networking', action='store_true', default=False,
+        help='Launch with classic networking (or fail if unavailable)')
     parser.add_argument(
         '-u', '--user-data-file', dest='user_data_file', type=str,
         help='Optional user-data file to run during instance initialization')
@@ -311,6 +310,27 @@ def get_parser():
         help=('Remove cloud-init artifacts and reboot system to re-run from'
               'a pseudo-clean system boot.'))
     return parser
+
+
+def ec2_account_has_classic_networking(region):
+    """Returns a bool indicating the availability of classic networking"""
+    client = boto3.client('ec2', region_name=region)
+    response = client.describe_account_attributes(
+        AttributeNames=['default-vpc'])
+
+    unexpected_exception = Exception(
+        'Unexpected response to describe_account_attributes:\n{}',
+        response)
+
+    attributes = response['AccountAttributes']
+    if len(attributes) != 1:
+        raise unexpected_exception
+    values = attributes[0]['AttributeValues']
+    if len(values) != 1:
+        raise unexpected_exception
+
+    # If default-vpc is none then we have classic networking
+    return values[0]['AttributeValue'] == 'none'
 
 
 def ec2_import_keypair(ec2, key_path):
@@ -464,7 +484,11 @@ def main():
     region_zone = '{0}{1}'.format(args.region, args.zone)
     try:
         vpc_id, subnet, routetable = None, None, None
-        if not args.no_vpc:
+        if args.use_classic_networking:
+            if not ec2_account_has_classic_networking(args.region):
+                raise Exception(
+                    'Account does not have classic networking available')
+        else:
             vpc, subnet, routetable = ec2_create_vpc(
                 ec2, region=args.region, zone=args.zone)
             vpc_id = vpc.id
