@@ -293,6 +293,10 @@ def get_parser():
         default=DEFAULT_AVAILABILITY_ZONE,
         help='Specify a zone to deploy to [default=%s]' % DEFAULT_AVAILABILITY_ZONE)
     parser.add_argument(
+        '--no-vpc', action='store_true', default=False,
+        help='Launch instance without an explicit VPC (useful for classic'
+             ' networking testing)')
+    parser.add_argument(
         '-u', '--user-data-file', dest='user_data_file', type=str,
         help='Optional user-data file to run during instance initialization')
     parser.add_argument(
@@ -412,13 +416,16 @@ def ec2_create_secgroup(ec2, vpc_id, sec_group_name=None, ipv4_cidr=None,
     return secgroup
 
 
-def ec2_create_instance(ec2, ami_id, region_zone, secgroup, subnet,
+def ec2_create_instance(ec2, ami_id, region_zone, secgroup, subnet=None,
                         flavor=None, user_data_file=None):
     """Create and instance and wait for started state."""
     kwargs = CREATE_INSTANCE_DEFAULTS.copy()
     kwargs['ImageId'] = ami_id
     kwargs['NetworkInterfaces'][0]['Groups'] = [secgroup.id]
-    kwargs['NetworkInterfaces'][0]['SubnetId'] = subnet.id
+    if subnet is not None:
+        kwargs['NetworkInterfaces'][0]['SubnetId'] = subnet.id
+    else:
+        del kwargs['NetworkInterfaces']
     kwargs['Placement']['AvailabilityZone'] = region_zone
     if flavor:
         kwargs['InstanceType'] = flavor
@@ -456,12 +463,15 @@ def main():
     ec2 = boto3.resource('ec2', region_name=args.region)
     region_zone = '{0}{1}'.format(args.region, args.zone)
     try:
-        vpc, subnet, routetable = ec2_create_vpc(
-            ec2, region=args.region, zone=args.zone)
-        secgroup = ec2_create_secgroup(ec2, vpc.id)
+        vpc_id, subnet, routetable = None, None, None
+        if not args.no_vpc:
+            vpc, subnet, routetable = ec2_create_vpc(
+                ec2, region=args.region, zone=args.zone)
+            vpc_id = vpc.id
+        secgroup = ec2_create_secgroup(ec2, vpc_id)
         ec2_import_keypair(ec2, args.pubkey_file)
         instance = ec2_create_instance(
-            ec2, image_id, region_zone, secgroup, subnet,
+            ec2, image_id, region_zone, secgroup, subnet=subnet,
             flavor=args.type, user_data_file=args.user_data_file)
     except NoCredentialsError as e:
         error('Credentials undefined or incorrect. Check ~/.aws/credentials')
