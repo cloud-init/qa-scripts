@@ -418,10 +418,15 @@ def ec2_create_secgroup(ec2, vpc_id, sec_group_name=None, ipv4_cidr=None,
         ipv6_cidr = '::/0'
     if not tag:
         tag = DEFAULT_TAG
+    # N.B. We filter for vpc_id locally because of the classic networking case
+    # where vpc_id is `None`; passing VpcId=None to filter() results in an
+    # error because only strings are valid input for that filter.
     existing_groups = [
         group for group in ec2.security_groups.filter(
             Filters=[{'Name': 'tag:Name', 'Values': [tag]},
-                     {'Name': 'group-name', 'Values': [sec_group_name]}])]
+                     {'Name': 'group-name', 'Values': [sec_group_name]}])
+        if group.vpc_id == vpc_id
+    ]
     if existing_groups:
         return existing_groups[0]
     kwargs = {}
