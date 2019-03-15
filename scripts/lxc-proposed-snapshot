@@ -132,7 +132,7 @@ main() {
 
     if [ "$publish" = "true" ]; then
         debug 1 "publishing $cname to alias $pubname"
-        lxc publish "$cname" local: "--alias=$pubname"
+        lxc publish "$cname" "--alias=$pubname"
     else
         CONTAINER_NAME=""
     fi
