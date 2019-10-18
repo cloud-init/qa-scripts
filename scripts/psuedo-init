@@ -4,6 +4,7 @@ set -f
 VERBOSITY=1
 LOG="/tmp/${0##*/}.log"
 BK_SUF=".psi-bk"
+PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 error() { echo "$@" 1>&2; }
 errorrc() { local r=$?; echo "$@" 1>&2; return $r; }
