@@ -218,11 +218,11 @@ def get_psuedo_init_blob():
         fail("Expected to find psuedo-init at %s but it does not exist" %
              fpath)
     with open(fpath, "rb") as fp:
-        return fp.read()
+        return fp.read(), fpath
 
 
 def do_start(remote, name, prof_name, ctn_cfg, cmd=None):
-    init_blob = get_psuedo_init_blob()
+    init_blob, pi_host_path = get_psuedo_init_blob()
 
     rcontainer = remote + ":" + name if remote else name
 
@@ -234,6 +234,8 @@ def do_start(remote, name, prof_name, ctn_cfg, cmd=None):
 
     lxc(['config', 'edit', rcontainer], data=yaml.dump(new_cfg).encode())
 
+    LOG.debug("Pushing %s to %s/%s",
+              pi_host_path, rcontainer, PSUEDO_INIT_PATH)
     lxc(['file', 'push', '--mode=0755', '-',
          rcontainer + PSUEDO_INIT_PATH],
         data=init_blob,
