@@ -149,7 +149,7 @@ wait_for_ready() {
 main() {
     local short_opts="h:v"
     local long_opts="help,network:,verbose"
-    local getopt_out="" args="$*"
+    local getopt_out="" args="$*" argn="$#"
     getopt_out=$(getopt --name "${0##*/}" \
         --options "${short_opts}" --long "${long_opts}" -- "$@") &&
         eval set -- "${getopt_out}" ||
@@ -171,9 +171,8 @@ main() {
     trap "exit 0" QUIT PWR;
     trap cleanup EXIT
 
+    debug 1 "$0 up got $argn args: $args"
     mount -t tmpfs /tmp /tmp || fail "Failed to mount tmpfs onto /tmp"
-    set -x
-    debug 1 "$0 up. args: $args"
     UMOUNTS="/tmp $UMOUNTS"
     debug 1 "mounted /tmp"
 
