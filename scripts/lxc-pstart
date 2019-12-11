@@ -236,7 +236,7 @@ def do_start(remote, name, prof_name, ctn_cfg, cmd=None):
 
     LOG.debug("Pushing %s to %s/%s",
               pi_host_path, rcontainer, PSUEDO_INIT_PATH)
-    lxc(['file', 'push', '--mode=0755', '-',
+    lxc(['file', 'push', '--mode=0755', '--uid=0', '--gid=0', '-',
          rcontainer + PSUEDO_INIT_PATH],
         data=init_blob,
         fmsg=("Failed to push psuedo-init to %s%s" %
