@@ -56,7 +56,20 @@ class SubpError(IOError):
             (pre + data.replace(cr, cr + pre) + cr).decode(errors='ignore'))
 
 
+class Container(object):
+    def __init__(self, ref):
+        if ':' in ref:
+            self.remote, _, self.name = ref.partition(":")
+        else:
+            self.remote = ""
+            self.name = ref
+
+    def __str__(self):
+        return self.remote + ":" + self.name if self.remote else self.name
+
+
 def lxc(args, ofmt=None, rcs=None, fmsg=None, data=None):
+    args = [str(a) for a in args]
     try:
         out, err, rc = subp(['lxc'] + args, rcs=rcs, data=data)
     except SubpError as e:
@@ -221,84 +234,77 @@ def get_psuedo_init_blob():
         return fp.read(), fpath
 
 
-def get_container_config(remote, name):
-    rcontainer = remote + ":" + name if remote else name
+def get_container_config(container):
     cfg, _, _ = lxc(
-        ['config', 'show', rcontainer], ofmt=FMT_YAML,
-        fmsg="Failed to get config for '%s'. Does it exist?" % rcontainer)
+        ['config', 'show', container], ofmt=FMT_YAML,
+        fmsg="Failed to get config for '%s'. Does it exist?" % container)
     return cfg
 
 
-def get_container_profiles(remote, name):
-    cfg = get_container_config(remote, name)
-    return cfg['profiles']
+def get_container_profiles(container):
+    return get_container_config(container)['profiles']
 
 
-def profile_remove(remote, name, prof_name):
-    rcontainer = remote + ":" + name if remote else name
-    cur = get_container_profiles(remote, name)
+def profile_remove(container, prof_name):
+    cur = get_container_profiles(container)
     if prof_name not in cur:
-        LOG.debug("%s does not have profile %s", rcontainer, prof_name)
+        LOG.debug("%s does not have profile %s", container, prof_name)
         return
-    lxc(['profile', 'remove', rcontainer, prof_name],
-        fmsg="Failed to remove profile %s from %s" % (rcontainer, prof_name))
-    LOG.info("Removed profile %s from %s", prof_name, rcontainer)
+    lxc(['profile', 'remove', container, prof_name],
+        fmsg="Failed to remove profile %s from %s" % (container, prof_name))
+    LOG.info("Removed profile %s from %s", prof_name, container)
 
 
-def profile_add(remote, name, prof_name):
-    rcontainer = remote + ":" + name if remote else name
-    cur = get_container_profiles(remote, name)
+def profile_add(container, prof_name):
+    cur = get_container_profiles(container)
     if prof_name in cur:
-        LOG.debug("%s already had profile %s", rcontainer, prof_name)
+        LOG.debug("%s already had profile %s", container, prof_name)
         return
-    lxc(['profile', 'add', rcontainer, prof_name],
-        fmsg="Failed to add profile %s to %s" % (rcontainer, prof_name))
-    LOG.info("Added profile %s to %s", prof_name, rcontainer)
+    lxc(['profile', 'add', container, prof_name],
+        fmsg="Failed to add profile %s to %s" % (container, prof_name))
+    LOG.info("Added profile %s to %s", prof_name, container)
 
 
-def do_start(remote, name, prof_name, cmd=None):
+def do_start(container, prof_name, cmd=None):
     init_blob, pi_host_path = get_psuedo_init_blob()
 
-    rcontainer = remote + ":" + name if remote else name
+    prof_cfg, net_cfg = create_profile(container.remote, prof_name)
 
-    prof_cfg, net_cfg = create_profile(remote, prof_name)
-
-    profile_add(remote, name, prof_name)
+    profile_add(container, prof_name)
 
     LOG.debug("Pushing %s to %s/%s",
-              pi_host_path, rcontainer, PSUEDO_INIT_PATH)
+              pi_host_path, container, PSUEDO_INIT_PATH)
     lxc(['file', 'push', '--mode=0755', '--uid=0', '--gid=0', '-',
-         rcontainer + PSUEDO_INIT_PATH],
+         str(container) + PSUEDO_INIT_PATH],
         data=init_blob,
         fmsg=("Failed to push psuedo-init to %s%s" %
-              (rcontainer, PSUEDO_INIT_PATH)))
+              (container, PSUEDO_INIT_PATH)))
 
-    lxc(['start', rcontainer],
-        fmsg="Failed to start container '%s'" % rcontainer)
+    lxc(['start', container],
+        fmsg="Failed to start container '%s'" % container)
     LOG.debug("waiting for container via lxc exec %s -- %s wait",
-              rcontainer, PSUEDO_INIT_PATH)
-    lxc(['exec', rcontainer, '--', PSUEDO_INIT_PATH, 'wait'])
+              container, PSUEDO_INIT_PATH)
+    lxc(['exec', container, '--', PSUEDO_INIT_PATH, 'wait'])
 
     if not cmd:
         return
 
-    lcmd = ['lxc', 'exec', rcontainer, '--'] + cmd
+    lcmd = ['lxc', 'exec', str(container), '--'] + cmd
     print_cmd(lcmd)
     ret = subprocess.call(lcmd)
-    do_stop(remote, name, prof_name)
+    do_stop(container, prof_name)
     sys.exit(ret)
 
 
-def do_clean(remote, name, prof_name):
-    profile_remove(remote, name, prof_name)
+def do_clean(container, prof_name):
+    profile_remove(container, prof_name)
 
 
-def do_stop(remote, name, prof_name):
-    rcontainer = remote + ":" + name if remote else name
-    LOG.debug("Stopping container %s.", rcontainer)
-    lxc(['stop', rcontainer],
-        fmsg="Failed to stop container %s" % rcontainer)
-    do_clean(remote, name, prof_name)
+def do_stop(container, prof_name):
+    LOG.debug("Stopping container %s.", container)
+    lxc(['stop', container],
+        fmsg="Failed to stop container %s" % container)
+    do_clean(container, prof_name)
 
 
 def main():
@@ -338,22 +344,17 @@ def main():
     atexit.register(cleanups)
 
     prof_name = cmdargs.bname
-    if ':' in cmdargs.container:
-        remote, _, container = cmdargs.container.partition(":")
-    else:
-        remote = ""
-        container = cmdargs.container
-    rcontainer = remote + container
+    container = Container(cmdargs.container)
 
-    lxc(['info', rcontainer],
-        fmsg="Failed to get info for '%s'. Does it exist?" % rcontainer)
+    lxc(['info', container],
+        fmsg="Failed to get info for '%s'. Does it exist?" % container)
 
     if cmdargs.mode == "start":
-        do_start(remote, container, prof_name, cmdargs.cmd)
+        do_start(container, prof_name, cmdargs.cmd)
     elif cmdargs.mode == "clean":
-        do_clean(remote, container, prof_name)
+        do_clean(container, prof_name)
     elif cmdargs.mode == "stop":
-        do_stop(remote, container, prof_name)
+        do_stop(container, prof_name)
     else:
         sys.stderr.write("Unknown mode: %s" % cmdargs.mode)
         sys.exit(1)
