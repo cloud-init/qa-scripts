@@ -221,18 +221,49 @@ def get_psuedo_init_blob():
         return fp.read(), fpath
 
 
-def do_start(remote, name, prof_name, ctn_cfg, cmd=None):
+def get_container_config(remote, name):
+    rcontainer = remote + ":" + name if remote else name
+    cfg, _, _ = lxc(
+        ['config', 'show', rcontainer], ofmt=FMT_YAML,
+        fmsg="Failed to get config for '%s'. Does it exist?" % rcontainer)
+    return cfg
+
+
+def get_container_profiles(remote, name):
+    cfg = get_container_config(remote, name)
+    return cfg['profiles']
+
+
+def profile_remove(remote, name, prof_name):
+    rcontainer = remote + ":" + name if remote else name
+    cur = get_container_profiles(remote, name)
+    if prof_name not in cur:
+        LOG.debug("%s does not have profile %s", rcontainer, prof_name)
+        return
+    lxc(['profile', 'remove', rcontainer, prof_name],
+        fmsg="Failed to remove profile %s from %s" % (rcontainer, prof_name))
+    LOG.info("Removed profile %s from %s", prof_name, rcontainer)
+
+
+def profile_add(remote, name, prof_name):
+    rcontainer = remote + ":" + name if remote else name
+    cur = get_container_profiles(remote, name)
+    if prof_name in cur:
+        LOG.debug("%s already had profile %s", rcontainer, prof_name)
+        return
+    lxc(['profile', 'add', rcontainer, prof_name],
+        fmsg="Failed to add profile %s to %s" % (rcontainer, prof_name))
+    LOG.info("Added profile %s to %s", prof_name, rcontainer)
+
+
+def do_start(remote, name, prof_name, cmd=None):
     init_blob, pi_host_path = get_psuedo_init_blob()
 
     rcontainer = remote + ":" + name if remote else name
 
     prof_cfg, net_cfg = create_profile(remote, prof_name)
 
-    new_cfg = copy.deepcopy(ctn_cfg)
-    new_cfg['profiles'] = (
-        [p for p in new_cfg['profiles'] if p != prof_name] + [prof_name])
-
-    lxc(['config', 'edit', rcontainer], data=yaml.dump(new_cfg).encode())
+    profile_add(remote, name, prof_name)
 
     LOG.debug("Pushing %s to %s/%s",
               pi_host_path, rcontainer, PSUEDO_INIT_PATH)
@@ -254,31 +285,20 @@ def do_start(remote, name, prof_name, ctn_cfg, cmd=None):
     lcmd = ['lxc', 'exec', rcontainer, '--'] + cmd
     print_cmd(lcmd)
     ret = subprocess.call(lcmd)
-    do_stop(remote, name, prof_name, new_cfg)
+    do_stop(remote, name, prof_name)
     sys.exit(ret)
 
 
-def do_clean(remote, name, prof_name, ctn_cfg):
-    rcontainer = remote + ":" + name if remote else name
-    new_profiles = [p for p in ctn_cfg['profiles'] if p != prof_name]
-    if ctn_cfg['profiles'] == new_profiles:
-        LOG.debug("No change needed to %s (%s not in profiles)",
-                  rcontainer, prof_name)
-        return
-
-    ctn_cfg['profiles'] = new_profiles
-    LOG.debug("Removing '%s' from profiles for container '%s'",
-              prof_name, rcontainer)
-    lxc(['config', 'edit', rcontainer], data=yaml.dump(ctn_cfg).encode(),
-        fmsg="Failed to restore config on '%s'" % rcontainer)
+def do_clean(remote, name, prof_name):
+    profile_remove(remote, name, prof_name)
 
 
-def do_stop(remote, name, prof_name, ctn_cfg):
+def do_stop(remote, name, prof_name):
     rcontainer = remote + ":" + name if remote else name
     LOG.debug("Stopping container %s.", rcontainer)
     lxc(['stop', rcontainer],
         fmsg="Failed to stop container %s" % rcontainer)
-    do_clean(remote, name, prof_name, ctn_cfg)
+    do_clean(remote, name, prof_name)
 
 
 def main():
@@ -325,16 +345,15 @@ def main():
         container = cmdargs.container
     rcontainer = remote + container
 
-    ctn_cfg, _, _ = lxc(
-        ['config', 'show', rcontainer], ofmt=FMT_YAML,
-        fmsg="Failed to get config for '%s'. Does it exist?" % rcontainer)
+    lxc(['info', rcontainer],
+        fmsg="Failed to get info for '%s'. Does it exist?" % rcontainer)
 
     if cmdargs.mode == "start":
-        do_start(remote, container, prof_name, ctn_cfg, cmdargs.cmd)
+        do_start(remote, container, prof_name, cmdargs.cmd)
     elif cmdargs.mode == "clean":
-        do_clean(remote, container, prof_name, ctn_cfg)
+        do_clean(remote, container, prof_name)
     elif cmdargs.mode == "stop":
-        do_stop(remote, container, prof_name, ctn_cfg)
+        do_stop(remote, container, prof_name)
     else:
         sys.stderr.write("Unknown mode: %s" % cmdargs.mode)
         sys.exit(1)
