@@ -41,6 +41,7 @@ cleanup() {
         mv "$f${BK_SUF}" "$f"
     done
     [ ! -f "$FIFO" ] || rm -f "$FIFO"
+    exec 3<&-
     [ ! -f "$0" ] || rm -f "$0"
     for um in $UMOUNTS; do
         umount $um
@@ -168,7 +169,7 @@ main() {
     done
 
     FIFO="/tmp/.init-fifo" IFACE="eth0" RESTORES="" UMOUNTS=""
-    trap "exit 0" QUIT PWR;
+    trap "debug 1 shutting down; exit 0" QUIT PWR;
     trap cleanup EXIT
 
     debug 1 "$0 up got $argn args: $args"
